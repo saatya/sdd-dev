@@ -1,0 +1,10 @@
+# Local cluster for testing. extraMounts maps the node's hostPath directory to
+# ./node-logs on YOUR laptop, so you can open the sidecar's output directly.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: hello
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: ./node-logs
+        containerPath: /var/log/hello-app

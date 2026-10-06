@@ -1,0 +1,117 @@
+# SPEC-001 §4 (AC-9 .. AC-15)
+#
+#  ┌──────────────────────────── Pod ────────────────────────────┐
+#  │  log-shipper (native sidecar)        hello-app              │
+#  │  tail -F app.log ──┐            writes /var/log/app/app.log │
+#  │                    │                      │                 │
+#  │      /var/log/app (emptyDir, shared) ◄────┘                 │
+#  │                    │                                        │
+#  │      /node-logs (hostPath) ◄── appends <pod-name>.log       │
+#  └─────────────────────┼───────────────────────────────────────┘
+#                        ▼
+#          node disk: /var/log/hello-app/<pod-name>.log
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-app
+  namespace: hello
+  labels:
+    app: hello-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hello-app
+  template:
+    metadata:
+      labels:
+        app: hello-app
+    spec:
+      securityContext:
+        fsGroup: 10001                  # makes the emptyDir writable by the app user
+      terminationGracePeriodSeconds: 30
+
+      # AC-11: native sidecar. An initContainer with restartPolicy: Always
+      # starts before the app containers and is stopped after them.
+      # Requires Kubernetes >= 1.29 (GA in 1.33).
+      initContainers:
+        - name: log-shipper
+          image: busybox:1.36
+          restartPolicy: Always
+          env:
+            - name: POD_NAME              # AC-12: one file per replica
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # -F follows the file by name, so it survives log rotation (AC-15)
+              # and waits for the file if the app hasn't created it yet.
+              # tee also echoes to stdout, so `kubectl logs -c log-shipper` works.
+              tail -n +1 -F /var/log/app/app.log | tee -a "/node-logs/${POD_NAME}.log"
+          volumeMounts:
+            - name: app-logs
+              mountPath: /var/log/app
+              readOnly: true              # sidecar can read, never modify, app logs
+            - name: node-logs
+              mountPath: /node-logs
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits:   { cpu: 100m, memory: 32Mi }
+          securityContext:                # AC-13
+            # Runs as root only because a fresh hostPath dir is owned by root.
+            # In production, pre-create the node dir with the right owner (or use
+            # a node log agent) and set runAsNonRoot: true here as well.
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["DAC_OVERRIDE"]       # kind maps the dir from your laptop with your UID
+
+      containers:
+        - name: hello-app
+          image: hello-k8s-sidecar:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: LOGGING_FILE_NAME     # AC-9: Spring Boot logs here AND to stdout
+              value: /var/log/app/app.log
+          volumeMounts:
+            - name: app-logs
+              mountPath: /var/log/app
+            - name: tmp
+              mountPath: /tmp             # Tomcat/JVM temp files (root FS is read-only)
+          livenessProbe:                  # AC-14
+            httpGet: { path: /actuator/health/liveness, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: 500m, memory: 512Mi }
+          securityContext:                # AC-13
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+      volumes:
+        - name: app-logs                  # shared between app and sidecar
+          emptyDir:
+            sizeLimit: 100Mi              # 5 x 10MB rotated files + headroom
+        - name: tmp
+          emptyDir: {}
+        - name: node-logs                 # AC-10: local disk on the node
+          hostPath:
+            path: /var/log/hello-app
+            type: DirectoryOrCreate

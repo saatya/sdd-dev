@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn -B test:*)",
+      "Bash(mvn test:*)",
+      "Bash(make test)",
+      "Bash(make build)",
+      "Bash(make verify)",
+      "Bash(docker build:*)",
+      "Bash(kind load docker-image:*)",
+      "Bash(kubectl config current-context)",
+      "Bash(kubectl -n hello get:*)",
+      "Bash(kubectl -n hello describe:*)",
+      "Bash(kubectl -n hello logs:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)"
+    ],
+    "ask": [
+      "Bash(kubectl apply:*)",
+      "Bash(make deploy)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
+    ],
+    "deny": [
+      "Bash(kubectl delete namespace:*)",
+      "Bash(kubectl --context:*)",
+      "Bash(kubectl config use-context:*)"
+    ]
+  }
+}

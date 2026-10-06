@@ -1,0 +1,51 @@
+openapi: 3.0.3
+info:
+  title: Hello Greeting API
+  version: 1.0.0
+  description: Contract for SPEC-001. Keep in sync with specs/001-hello-greeting.md.
+paths:
+  /api/v1/hello:
+    get:
+      operationId: getGreeting
+      summary: Return a greeting
+      parameters:
+        - name: name
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 50
+            pattern: "^[A-Za-z' -]+$"
+      responses:
+        "200":
+          description: Greeting
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Greeting"
+        "400":
+          description: Invalid name
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+components:
+  schemas:
+    Greeting:
+      type: object
+      required: [message, timestamp]
+      properties:
+        message:
+          type: string
+          example: Hello, World!
+        timestamp:
+          type: string
+          format: date-time
+    Problem:
+      type: object
+      properties:
+        type: { type: string }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
